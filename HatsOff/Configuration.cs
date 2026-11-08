@@ -19,8 +19,14 @@ public sealed class Configuration : IPluginConfiguration
     /// <summary> Also hide while talking to an NPC (dialogue box), outside of cutscenes. </summary>
     public bool NpcDialogue { get; set; } = false;
 
+    /// <summary> Also hide when a quest makes your character react (bow, kneel...) without a cutscene or dialogue box. </summary>
+    public bool QuestAnimations { get; set; } = false;
+
     /// <summary> Keep the hat hidden for this long after a cutscene ends (covers the fade-out and short gaps between scenes). </summary>
     public int RestoreDelayMs { get; set; } = 500;
+
+    /// <summary> Keep the hat hidden for this long after an NPC conversation or quest reaction (bridges gaps between parts). </summary>
+    public int ConversationRestoreDelayMs { get; set; } = 2000;
 
     /// <summary> Print a chat line every time the hat is hidden/restored. </summary>
     public bool ChatFeedback { get; set; } = false;

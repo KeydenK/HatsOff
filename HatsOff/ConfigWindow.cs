@@ -52,7 +52,7 @@ internal sealed class ConfigWindow : Window
         if (!_plugin.Glamourer.Available)
         {
             StatusLine(ImGuiColors.DalamudRed, FontAwesomeIcon.ExclamationTriangle, "Glamourer is required");
-            ImGui.TextUnformatted("Hats Off uses Glamourer to hide your hat only on your screen. "
+            ImGui.TextUnformatted("Hats Off uses Glamourer to hide your hat without sending anything to the game server. "
               + "Install and enable Glamourer (it also needs Penumbra) from the plugin installer, then come back here.");
             using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
                 ImGui.TextUnformatted(_plugin.Glamourer.Status);
@@ -61,13 +61,15 @@ internal sealed class ConfigWindow : Window
 
         if (controller.IsTesting)
             StatusLine(ImGuiColors.DalamudYellow, FontAwesomeIcon.Vial, "Testing: your hat is hidden for a few seconds");
+        else if (controller.IsHidden && controller.Reason is HatController.HideReason.QuestAnimation)
+            StatusLine(ImGuiColors.DalamudYellow, FontAwesomeIcon.Running, "Quest animation: your hat is hidden");
         else if (controller.IsHidden && controller.Reason is HatController.HideReason.Dialogue)
             StatusLine(ImGuiColors.DalamudYellow, FontAwesomeIcon.Comments, "Talking to an NPC: your hat is hidden");
         else if (controller.IsHidden)
             StatusLine(ImGuiColors.DalamudYellow, FontAwesomeIcon.Film, "Cutscene playing: your hat is hidden");
         else if (!Config.Enabled)
             StatusLine(ImGuiColors.DalamudGrey, FontAwesomeIcon.PowerOff, "Turned off");
-        else if (!Config.StoryCutscenes && !Config.DutyCutscenes && !Config.NpcDialogue)
+        else if (!Config.StoryCutscenes && !Config.DutyCutscenes && !Config.NpcDialogue && !Config.QuestAnimations)
             StatusLine(ImGuiColors.DalamudOrange, FontAwesomeIcon.ExclamationCircle, "On, but nothing is selected below");
         else
             StatusLine(ImGuiColors.HealerGreen, FontAwesomeIcon.CheckCircle,
@@ -96,8 +98,8 @@ internal sealed class ConfigWindow : Window
 
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
         {
-            ImGui.TextUnformatted("Your hat comes back as soon as it's over. "
-              + "Only you see the change: other players keep seeing your hat.");
+            ImGui.TextUnformatted("Your hat comes back as soon as it's over. Nothing is sent to the game server: "
+              + "other players keep seeing your hat. Friends synced through Lightless Sync or PlayerSync may see it briefly.");
         }
     }
 
@@ -136,7 +138,23 @@ internal sealed class ConfigWindow : Window
 
         ImGui.SameLine();
         ImGuiComponents.HelpMarker("Also hides your hat when a dialogue box opens outside of cutscenes, "
-          + "for the whole conversation (including choices and quest windows).");
+          + "for the whole conversation (including choices and quest windows).\n"
+          + "Vendors, service NPCs and retainers are left alone, so you can see and try on gear.\n"
+          + "Quest objects (glowing spots, items to examine) only hide it if your character visibly reacts.\n"
+          + "Friends synced through Lightless Sync or PlayerSync will see it during these conversations.");
+
+        var questAnims = Config.QuestAnimations;
+        if (ImGui.Checkbox("Quest animations without dialogue (experimental)", ref questAnims))
+        {
+            Config.QuestAnimations = questAnims;
+            _plugin.SaveConfig();
+        }
+
+        ImGui.SameLine();
+        ImGuiComponents.HelpMarker("Also hides your hat when a quest makes your character do something (bow, kneel, hand over an item...) "
+          + "outside of cutscenes and dialogue boxes.\n"
+          + "Facial expressions count too. Simple interactions where your character doesn't react (like picking something up) are ignored.\n"
+          + "Friends synced through Lightless Sync or PlayerSync will see it at those moments.");
     }
 
     private void DrawTestButton()
@@ -158,7 +176,7 @@ internal sealed class ConfigWindow : Window
 
         var delay = Config.RestoreDelayMs / 1000f;
         ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("Keep hidden after the cutscene", ref delay, 0f, 3f, "%.1f s"))
+        if (ImGui.SliderFloat("Keep hidden after a cutscene", ref delay, 0f, 3f, "%.1f s"))
         {
             Config.RestoreDelayMs = (int)MathF.Round(delay * 1000);
             _plugin.SaveConfig();
@@ -167,6 +185,18 @@ internal sealed class ConfigWindow : Window
         ImGui.SameLine();
         ImGuiComponents.HelpMarker("Waits a little before giving your hat back, so it doesn't pop in during the fade-out "
           + "or between two scenes that follow each other. 0.5 s works well.");
+
+        var talkDelay = Config.ConversationRestoreDelayMs / 1000f;
+        ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderFloat("Keep hidden after a conversation", ref talkDelay, 0f, 5f, "%.1f s"))
+        {
+            Config.ConversationRestoreDelayMs = (int)MathF.Round(talkDelay * 1000);
+            _plugin.SaveConfig();
+        }
+
+        ImGui.SameLine();
+        ImGuiComponents.HelpMarker("Same idea for NPC conversations, quest objects and quest animations. "
+          + "Conversations often come in several parts with short gaps: 2 s keeps the hat from flashing back in between.");
 
         var chat = Config.ChatFeedback;
         if (ImGui.Checkbox("Show a chat message when the hat is hidden or restored", ref chat))

@@ -30,7 +30,13 @@ internal sealed unsafe class HatController : IDisposable
         Test,
         Cutscene,
         Dialogue,
+        QuestAnimation,
     }
+
+    private static readonly TimeSpan QuestCheckInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary> Why the hat was hidden most recently, to pick the right restore delay. </summary>
+    private HideReason _hiddenFor;
 
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
 
@@ -64,6 +70,17 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> A shop window was opened during the current NPC interaction. </summary>
     private bool _shopThisEvent;
 
+    /// <summary> The current interaction is with an object (glowing quest spot, item...), not an NPC. </summary>
+    private bool _objectThisEvent;
+
+    /// <summary> Name shown as the speaker of the current dialogue line (empty for descriptions without a speaker). </summary>
+    private string _talkSpeaker = string.Empty;
+
+    // Quest interactions without dialogue: watch the character's animation only while such an interaction runs.
+    private bool     _questWatching;
+    private bool     _questReaction;
+    private bool     _questCheckPending;
+
     /// <summary> Glamourer refused for a reason that won't fix itself (state locked by another plugin...): don't insist. </summary>
     private bool _refused;
 
@@ -84,6 +101,8 @@ internal sealed unsafe class HatController : IDisposable
 
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Talk", OnTalkOpened);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostShow,    "Talk", OnTalkOpened);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "Talk", OnTalkUpdated);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "Talk", OnTalkUpdated);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreHide,     "Talk", OnTalkClosed);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Talk", OnTalkClosed);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   ShopAddons, OnShopOpened);
@@ -116,6 +135,21 @@ internal sealed unsafe class HatController : IDisposable
          || Plugin.Condition[ConditionFlag.BoundByDuty56]
          || Plugin.Condition[ConditionFlag.BoundByDuty95];
 
+    private static bool InQuestEvent
+        => Plugin.Condition[ConditionFlag.OccupiedInQuestEvent];
+
+    /// <summary> The NPC we're talking to: interacting with an NPC targets it. 0 if unknown. </summary>
+    /// <summary> Interacting with an object (glowing quest destination, item to examine...) rather than an NPC. </summary>
+    private static bool TalkingToObject()
+        => (Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget) is
+            { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj };
+
+    private static uint TalkingToBaseId()
+    {
+        var target = Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget;
+        return target is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc } ? target.BaseId : 0;
+    }
+
     private static bool InNpcEvent
         => Plugin.Condition[ConditionFlag.OccupiedInEvent]
          || Plugin.Condition[ConditionFlag.OccupiedInQuestEvent];
@@ -141,9 +175,48 @@ internal sealed unsafe class HatController : IDisposable
     private void OnConditionChange(ConditionFlag flag, bool value)
         => Evaluate();
 
+    /// <summary> A new dialogue line: remember who speaks, since it decides whether an object interaction is a conversation. </summary>
+    private void OnTalkUpdated(AddonEvent type, AddonArgs args)
+    {
+        var speaker = ReadSpeaker(args);
+        if (speaker == _talkSpeaker)
+            return;
+
+        _talkSpeaker = speaker;
+        if (_objectThisEvent && !_inDialogue)
+            Evaluate();
+    }
+
+    private static unsafe string ReadSpeaker(AddonArgs args)
+    {
+        try
+        {
+            var talk = (FFXIVClientStructs.FFXIV.Client.UI.AddonTalk*)args.Addon.Address;
+            if (talk == null || talk->AtkTextNode220 == null)
+                return string.Empty;
+
+            return new Lumina.Text.ReadOnly.ReadOnlySeStringSpan(talk->AtkTextNode220->NodeText.AsSpan()).ExtractText().Trim();
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    /// <summary> Someone (not the object itself) speaks in the dialogue box: it's a real conversation. </summary>
+    private bool SomeoneSpeaks()
+    {
+        if (_talkSpeaker.Length == 0)
+            return false;
+
+        var target = Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget;
+        return target is null || !string.Equals(target.Name.TextValue, _talkSpeaker, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void OnTalkOpened(AddonEvent type, AddonArgs args)
     {
-        _talkOpen = true;
+        _talkOpen    = true;
+        _talkSpeaker = ReadSpeaker(args);
         if (_config.Enabled && _config.NpcDialogue && !_inDialogue)
             Evaluate();
     }
@@ -224,6 +297,7 @@ internal sealed unsafe class HatController : IDisposable
 
         if (WantHidden(DateTime.UtcNow))
         {
+            _hiddenFor = Reason;
             _restoreGeneration++; // cancel any pending restore
             if (!IsHidden)
             {
@@ -269,6 +343,10 @@ internal sealed unsafe class HatController : IDisposable
 
         if (InCutscene)
         {
+            // Cutscenes are handled on their own: no need to watch animations meanwhile.
+            _questWatching = false;
+            _questReaction = false;
+
             if (InDuty ? _config.DutyCutscenes : _config.StoryCutscenes)
                 return HideReason.Cutscene;
 
@@ -277,16 +355,58 @@ internal sealed unsafe class HatController : IDisposable
             return HideReason.None;
         }
 
-        // The NPC interaction is over: forget about any shop opened during it.
+        // The interaction is over: forget what we learned about it.
         if (!InNpcEvent)
-            _shopThisEvent = false;
+        {
+            _shopThisEvent   = false;
+            _objectThisEvent = false;
+        }
+        else if (!_objectThisEvent && (_config.NpcDialogue || _config.QuestAnimations) && TalkingToObject())
+        {
+            // An object (glowing quest spot, aether current, switch...): it only counts if the character reacts,
+            // with or without a text box.
+            _objectThisEvent = true;
+            Plugin.Log.Information("Interacting with an object: the hat only hides if your character reacts.");
+        }
 
         if (_config.NpcDialogue && !_shopThisEvent && !AtSummoningBell)
         {
             // Start only when a dialogue box is up AND the game says we're in an NPC conversation.
             // A dialogue box on its own (retainers, system messages...) would only make the hat flicker.
             if (!_inDialogue && _talkOpen && InNpcEvent)
-                _inDialogue = true;
+            {
+                // Quest conversations always count. Otherwise, skip vendors and service NPCs entirely
+                // (their greetings aren't story moments, and you may want to see or try on gear there).
+                var npcId = TalkingToBaseId();
+                if (_objectThisEvent && !SomeoneSpeaks())
+                {
+                    // An object's own text: only counts if your character visibly reacts (animation watch below).
+                }
+                else if (_objectThisEvent)
+                {
+                    // The object started a conversation: dialogue wins.
+                    _inDialogue = true;
+                    Plugin.Log.Information($"Someone speaks ({_talkSpeaker}) after interacting with an object, hiding the hat.");
+                }
+                else if (!InQuestEvent && ServiceNpcs.IsServiceNpc(npcId))
+                {
+                    _shopThisEvent = true;
+                    Plugin.Log.Information($"Conversation with a vendor/service NPC ({npcId}), leaving the hat alone.");
+                }
+                else
+                {
+                    _inDialogue = true;
+                    Plugin.Log.Information(InQuestEvent
+                        ? $"Quest conversation ({npcId}), hiding the hat."
+                        : $"Conversation with a regular NPC ({npcId}), hiding the hat.");
+                }
+            }
+
+            if (_shopThisEvent)
+            {
+                _inDialogue = false;
+                return HideReason.None;
+            }
 
             // Keep going for the whole conversation: choices and quest windows between lines included.
             if (_inDialogue && InNpcEvent)
@@ -294,7 +414,156 @@ internal sealed unsafe class HatController : IDisposable
         }
 
         _inDialogue = false;
+
+        // Interactions without an NPC conversation (quest actions, objects): hide only if the character actually
+        // reacts (bow, kneel...). Watching starts with the interaction, so a reaction is caught even before a text box.
+        // Only watch where a reaction would actually count, and stop as soon as it no longer would.
+        if (WatchUseful())
+        {
+            if (_questReaction)
+                return HideReason.QuestAnimation;
+
+            if (!_questWatching)
+                StartQuestWatch();
+        }
+        else
+        {
+            _questWatching = false;
+            _questReaction = false;
+        }
+
         return HideReason.None;
+    }
+
+    // ----- Quest animations -----
+
+    /// <summary> Is there any point watching the character's animation right now? </summary>
+    private bool WatchUseful()
+        => InNpcEvent && !InCutscene && !_inDialogue && !_shopThisEvent && !AtSummoningBell
+         && ((_config.QuestAnimations && InQuestEvent) || _objectThisEvent);
+
+    private const int AnimationLayers = 14;
+
+    /// <summary> What the character is doing: every animation layer (body, upper body, face...), forced animation and mode. </summary>
+    private sealed class AnimState
+    {
+        public readonly ushort[] Layers = new ushort[AnimationLayers];
+        public ushort Override;
+        public byte   Mode;
+    }
+
+    private readonly AnimState _animSnapshot = new();
+    private readonly AnimState _animNow      = new();
+
+    private static unsafe bool ReadAnimation(AnimState into)
+    {
+        if (Plugin.ObjectTable.LocalPlayer is not { } player)
+            return false;
+
+        var character = (Character*)player.Address;
+        var ids       = character->Timeline.TimelineSequencer.TimelineIds;
+        for (var i = 0; i < AnimationLayers && i < ids.Length; i++)
+            into.Layers[i] = ids[i];
+        into.Override = character->Timeline.BaseOverride;
+        into.Mode     = (byte)character->Mode;
+        return true;
+    }
+
+    private static void Copy(AnimState from, AnimState to)
+    {
+        Array.Copy(from.Layers, to.Layers, AnimationLayers);
+        to.Override = from.Override;
+        to.Mode     = from.Mode;
+    }
+
+    /// <summary> Remember what the character looks like when the interaction starts, then watch for a change. </summary>
+    private void StartQuestWatch()
+    {
+        if (!ReadAnimation(_animSnapshot))
+            return;
+
+        _questWatching = true;
+        ScheduleQuestCheck();
+    }
+
+    /// <summary>
+    /// The game has no "your character started an animation" event, so while (and only while) an interaction
+    /// runs, look at the character's animation 10 times a second. It stops as soon as the interaction ends.
+    /// </summary>
+    private void ScheduleQuestCheck()
+    {
+        if (_questCheckPending)
+            return;
+
+        _questCheckPending = true;
+        Plugin.Framework.RunOnTick(() =>
+        {
+            _questCheckPending = false;
+            QuestCheck();
+        }, QuestCheckInterval);
+    }
+
+    private void QuestCheck()
+    {
+        if (_disposed || !_questWatching || _questReaction)
+            return;
+
+        if (!WatchUseful())
+        {
+            // Interaction over, turned into a conversation or a shop, a cutscene started...: stop watching.
+            _questWatching = false;
+            Evaluate();
+            return;
+        }
+
+        if (ReadAnimation(_animNow) && FindReaction() is { } reaction)
+        {
+            Plugin.Log.Information($"Your character reacts ({reaction}), hiding the hat.");
+            _questReaction = true;
+            Evaluate();
+            return;
+        }
+
+        ScheduleQuestCheck();
+    }
+
+    /// <summary>
+    /// Compares the current animation with the snapshot. Returns a description of a real reaction, or null.
+    /// Changes the character makes on its own (idle variants, idle stance, an animation ending) update the snapshot.
+    /// </summary>
+    private string? FindReaction()
+    {
+
+        if (_animNow.Mode != _animSnapshot.Mode)
+            return $"mode {_animSnapshot.Mode} -> {_animNow.Mode}";
+
+        if (_animNow.Override != _animSnapshot.Override && _animNow.Override != 0)
+            return $"forced animation {Animations.Describe(_animNow.Override)}";
+
+        for (var i = 0; i < AnimationLayers; i++)
+        {
+            var before = _animSnapshot.Layers[i];
+            var now    = _animNow.Layers[i];
+            if (before == now || now == 0)
+                continue;
+
+            var key = Animations.Key(now);
+            if (Animations.IsFacialExpression(key))
+                return $"facial expression {Animations.Describe(now)}";
+
+            if (Animations.IsIdle(now))
+                continue;
+
+            // Body animation, or an emote played on another layer.
+            if (i == 0 || key.StartsWith("emote/", StringComparison.Ordinal) || key.StartsWith("event", StringComparison.Ordinal))
+                return $"{Animations.Describe(before)} -> {Animations.Describe(now)}";
+
+            Plugin.Log.Debug($"Animation layer {i} changed to {Animations.Describe(now)}, not treated as a reaction.");
+        }
+
+        // Nothing meaningful: take the current state as the new reference.
+        Copy(_animNow, _animSnapshot);
+        return null;
     }
 
     /// <summary>
@@ -304,13 +573,21 @@ internal sealed unsafe class HatController : IDisposable
     private void ScheduleRestore()
     {
         var generation = ++_restoreGeneration;
+
+        // Conversations often come in several parts with a short gap between them:
+        // wait a bit longer there, so the hat doesn't flash back in between.
+        var delayMs = _hiddenFor is HideReason.Dialogue or HideReason.QuestAnimation
+            ? _config.ConversationRestoreDelayMs
+            : _config.RestoreDelayMs;
+        delayMs = Math.Max(0, delayMs);
+
         Plugin.Framework.RunOnTick(() =>
         {
             if (_disposed || generation != _restoreGeneration || !IsHidden || WantHidden(DateTime.UtcNow))
                 return;
 
             TryRestore();
-        }, TimeSpan.FromMilliseconds(Math.Max(0, _config.RestoreDelayMs)));
+        }, TimeSpan.FromMilliseconds(delayMs));
     }
 
     /// <summary> Something went wrong (no player object yet, Glamourer busy...): try again once, a bit later. </summary>
@@ -484,7 +761,7 @@ internal sealed unsafe class HatController : IDisposable
         Plugin.Condition.ConditionChange -= OnConditionChange;
         _glamourer.AvailabilityChanged   -= OnGlamourerAvailabilityChanged;
         _glamourer.ActorStateChanged     -= OnActorStateChanged;
-        Plugin.AddonLifecycle.UnregisterListener(OnTalkOpened, OnTalkClosed, OnShopOpened);
+        Plugin.AddonLifecycle.UnregisterListener(OnTalkOpened, OnTalkClosed, OnShopOpened, OnTalkUpdated);
 
         // Plugin unloaded / disabled mid-cutscene: give the hat back.
         if (!IsHidden || !_restoreVisible || !_glamourer.Available)

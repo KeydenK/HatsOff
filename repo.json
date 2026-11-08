@@ -4,8 +4,8 @@
     "Name": "Hats Off",
     "InternalName": "HatsOff",
     "AssemblyVersion": "1.0.0.0",
-    "Punchline": "Automatically hides your headgear during cutscenes, only on your screen.",
-    "Description": "Tired of your helmet in every story moment? Hats Off hides your headgear while a cutscene plays and puts it back the moment it ends.\n\n- Only you see it: nothing is sent to the server, other players keep seeing your hat.\n- Hidden from the start, including on the copy of your character used in story cutscenes.\n- Remembers your hat setting and puts exactly that back.\n- Choose story/quest cutscenes, duty cutscenes, or both.\n- Optional: also hide it while talking to NPCs, outside of cutscenes.\n\nRequires Glamourer (which itself requires Penumbra).\nCommand: /hatsoff",
+    "Punchline": "Automatically hides your headgear during cutscenes and, if you like, story conversations.",
+    "Description": "Hides your headgear while a cutscene plays and puts it back the moment it ends. Nothing is sent to the game server: other players keep seeing your hat.\n\nIt works from the very start of each cutscene, including on the copy of your character used in story scenes, and always puts your own hat setting back exactly as it was. Choose story cutscenes, duty cutscenes or both, and optionally hide it during quest and NPC conversations (vendors and retainers are left alone) or when a quest makes your character react, like bowing, kneeling or reaching out (simple pickups keep your hat on).\n\nIf you use a sync plugin (Lightless Sync, PlayerSync...), people synced with you may briefly see it after a cutscene, and during NPC conversations and quest interactions if those options are on. Requires Glamourer (which itself requires Penumbra). Command: /hatsoff",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/KeydenK/HatsOff",
     "Tags": [
