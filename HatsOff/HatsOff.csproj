@@ -1,0 +1,16 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+    <PropertyGroup>
+        <Version>1.0.0.0</Version>
+        <Description>Hides your headgear during cutscenes, only on your screen (via Glamourer).</Description>
+        <Authors>KeydenK</Authors>
+        <PackageProjectUrl>https://github.com/KeydenK/HatsOff</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Shown in the plugin installer for dev builds, and shipped inside the release zip. -->
+        <Content Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" Link="images\icon.png" />
+    </ItemGroup>
+</Project>
