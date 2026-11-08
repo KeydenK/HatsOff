@@ -8,8 +8,23 @@
     "Description": "Tired of your helmet in every story moment? Hats Off hides your headgear while a cutscene plays and puts it back the moment it ends.\n\n- Only you see it: nothing is sent to the server, other players keep seeing your hat.\n- Hidden from the start, including on the copy of your character used in story cutscenes.\n- Remembers your hat setting and puts exactly that back.\n- Choose story/quest cutscenes, duty cutscenes, or both.\n- Optional: also hide it while talking to NPCs, outside of cutscenes.\n\nRequires Glamourer (which itself requires Penumbra).\nCommand: /hatsoff",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/KeydenK/HatsOff",
-    "Tags": ["Headgear", "Hat", "Helmet", "Hide", "Hide Hat", "Cutscene", "Dialogue", "NPC", "Immersion", "Glamourer", "Appearance", "QoL"],
-    "CategoryTags": ["utility"],
+    "Tags": [
+      "Headgear",
+      "Hat",
+      "Helmet",
+      "Hide",
+      "Hide Hat",
+      "Cutscene",
+      "Dialogue",
+      "NPC",
+      "Immersion",
+      "Glamourer",
+      "Appearance",
+      "QoL"
+    ],
+    "CategoryTags": [
+      "utility"
+    ],
     "DalamudApiLevel": 15,
     "LoadRequiredState": 0,
     "LoadSync": false,
@@ -21,7 +36,7 @@
     "IsHide": false,
     "IsTestingExclusive": false,
     "DownloadCount": 0,
-    "LastUpdate": 0,
+    "LastUpdate": 1794108061,
     "DownloadLinkInstall": "https://github.com/KeydenK/HatsOff/releases/latest/download/latest.zip",
     "DownloadLinkUpdate": "https://github.com/KeydenK/HatsOff/releases/latest/download/latest.zip",
     "DownloadLinkTesting": "https://github.com/KeydenK/HatsOff/releases/latest/download/latest.zip"
