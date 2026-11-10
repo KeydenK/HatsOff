@@ -18,6 +18,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui                Chat            { get; private set; } = null!;
     [PluginService] internal static IAddonLifecycle         AddonLifecycle  { get; private set; } = null!;
     [PluginService] internal static ITargetManager          TargetManager   { get; private set; } = null!;
+    [PluginService] internal static IGameGui                GameGui         { get; private set; } = null!;
     [PluginService] internal static IDataManager            Data            { get; private set; } = null!;
     [PluginService] internal static IPluginLog              Log             { get; private set; } = null!;
 

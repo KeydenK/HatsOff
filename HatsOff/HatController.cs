@@ -145,12 +145,18 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> The NPC we're talking to: interacting with an NPC targets it. 0 if unknown. </summary>
     /// <summary> Interacting with an object (glowing quest destination, item to examine...) rather than an NPC. </summary>
     private static bool TalkingToObject()
-        => (Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget) is
-            { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj };
+        => InteractionTarget() is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj };
+
+    /// <summary>
+    /// What you're interacting with. The soft target comes first: with a controller (or when interacting with
+    /// whatever is in front of you) that's the real one, while the hard target can be a leftover from earlier.
+    /// </summary>
+    private static Dalamud.Game.ClientState.Objects.Types.IGameObject? InteractionTarget()
+        => Plugin.TargetManager.SoftTarget ?? Plugin.TargetManager.Target;
 
     private static uint TalkingToBaseId()
     {
-        var target = Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget;
+        var target = InteractionTarget();
         return target is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc } ? target.BaseId : 0;
     }
 
@@ -240,10 +246,7 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> A new dialogue line: remember who speaks, since it decides whether an object interaction is a conversation. </summary>
     private void OnTalkUpdated(AddonEvent type, AddonArgs args)
     {
-        // The speaker only matters to tell an object's text from someone speaking.
-        if (!_objectThisEvent || _inDialogue)
-            return;
-
+        TalkEventsWork();
         var speaker = ReadSpeaker(args);
         if (speaker == _talkSpeaker)
             return;
@@ -253,11 +256,14 @@ internal sealed unsafe class HatController : IDisposable
             Evaluate();
     }
 
-    private static unsafe string ReadSpeaker(AddonArgs args)
+    private static string ReadSpeaker(AddonArgs args)
+        => ReadSpeaker(args.Addon.Address);
+
+    private static unsafe string ReadSpeaker(nint addon)
     {
         try
         {
-            var talk = (FFXIVClientStructs.FFXIV.Client.UI.AddonTalk*)args.Addon.Address;
+            var talk = (FFXIVClientStructs.FFXIV.Client.UI.AddonTalk*)addon;
             if (talk == null || talk->AtkTextNode220 == null)
                 return string.Empty;
 
@@ -275,20 +281,23 @@ internal sealed unsafe class HatController : IDisposable
         if (_talkSpeaker.Length == 0)
             return false;
 
-        var target = Plugin.TargetManager.Target ?? Plugin.TargetManager.SoftTarget;
+        var target = InteractionTarget();
         return target is null || !string.Equals(target.Name.TextValue, _talkSpeaker, StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnTalkOpened(AddonEvent type, AddonArgs args)
     {
+        TalkEventsWork();
         _talkOpen    = true;
-        _talkSpeaker = _objectThisEvent ? ReadSpeaker(args) : string.Empty;
+        // Always read: the object/NPC decision can happen right after this, and it relies on who speaks.
+        _talkSpeaker = ReadSpeaker(args);
         if (_config.Enabled && _config.NpcDialogue && !_inDialogue)
             Evaluate();
     }
 
     private void OnTalkClosed(AddonEvent type, AddonArgs args)
     {
+        TalkEventsWork();
         _talkOpen = false;
         if (_inDialogue)
             Evaluate();
@@ -378,6 +387,84 @@ internal sealed unsafe class HatController : IDisposable
             if (IsHidden)
                 ScheduleRestore();
         }
+
+        if (TalkWatchUseful())
+            ScheduleTalkCheck();
+    }
+
+    // ----- Dialogue box visibility (safety net) -----
+
+    /// <summary>
+    /// The dialogue box normally tells us when it opens, but since a game update it can appear and disappear without
+    /// sending any event. So during an NPC interaction (and only then, with the NPC option on), we also look at
+    /// whether it's on screen, 10 times a second. It stops as soon as the interaction ends, and for good as soon as
+    /// the dialogue box sends a real event (meaning Dalamud's events work).
+    /// </summary>
+    private bool TalkWatchUseful()
+        => !_talkEventsWork && _config.Enabled && _config.NpcDialogue && InNpcEvent && !InCutscene && !AtSummoningBell;
+
+    /// <summary>
+    /// Set as soon as the dialogue box sends a real event: Dalamud's events work, so the visibility check
+    /// (the safety net) switches itself off for the rest of the session.
+    /// </summary>
+    private bool _talkEventsWork;
+
+    private void TalkEventsWork()
+    {
+        if (_talkEventsWork)
+            return;
+
+        _talkEventsWork = true;
+        Plugin.Log.Debug("Dialogue box events work: visibility safety net off.");
+    }
+
+    private bool    _talkCheckPending;
+    private Action? _talkCheckTick;
+
+    private void ScheduleTalkCheck()
+    {
+        if (_talkCheckPending)
+            return;
+
+        _talkCheckPending = true;
+        Plugin.Framework.RunOnTick(_talkCheckTick ??= () =>
+        {
+            _talkCheckPending = false;
+            TalkCheck();
+        }, QuestCheckInterval);
+    }
+
+    private void TalkCheck()
+    {
+        if (_disposed)
+            return;
+
+        if (!TalkWatchUseful())
+        {
+            if (_talkOpen)
+            {
+                _talkOpen = false;
+                Evaluate();
+            }
+
+            return;
+        }
+
+        var addon   = Plugin.GameGui.GetAddonByName("Talk");
+        var visible = !addon.IsNull && addon.IsVisible;
+        var changed = visible != _talkOpen;
+        if (visible)
+        {
+            var speaker = ReadSpeaker(addon.Address);
+            changed     |= speaker != _talkSpeaker;
+            _talkSpeaker = speaker;
+        }
+
+        _talkOpen = visible;
+        if (changed)
+            Evaluate(); // also schedules the next check while the interaction lasts
+        else
+            ScheduleTalkCheck();
     }
 
     private bool WantHidden(DateTime now)
