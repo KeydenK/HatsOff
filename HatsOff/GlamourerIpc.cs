@@ -63,14 +63,42 @@ internal sealed class GlamourerIpc : IDisposable
 
         _initialized.Subscribe(OnInitialized);
         _disposed.Subscribe(OnDisposed);
-        foreach (var gate in _stateChanged)
-            gate.Subscribe(OnStateChanged);
 
         Available = CheckAvailable();
     }
 
-    private void OnStateChanged(nint address)
-        => Plugin.Framework.RunOnFrameworkThread(() => ActorStateChanged?.Invoke(address));
+    private bool _watchingStateChanges;
+
+    /// <summary>
+    /// Glamourer reports every state change of every actor (other players included, very often with sync plugins).
+    /// We only care while we hide the hat, so we only listen during that time.
+    /// </summary>
+    public void WatchStateChanges(bool watch)
+    {
+        if (watch == _watchingStateChanges)
+            return;
+
+        _watchingStateChanges = watch;
+        foreach (var gate in _stateChanged)
+        {
+            if (watch)
+                gate.Subscribe(OnStateChanged);
+            else
+                gate.Unsubscribe(OnStateChanged);
+        }
+    }
+
+    /// <summary> Set while we call Glamourer ourselves: the change notification it sends back is our own doing. </summary>
+    private bool _selfChange;
+
+    private unsafe void OnStateChanged(nint address)
+    {
+        // Only our own character matters, and not our own changes. Checked before anything else (no allocation).
+        if (_selfChange || address != (nint)FFXIVClientStructs.FFXIV.Client.Game.Control.Control.GetLocalPlayer())
+            return;
+
+        Plugin.Framework.RunOnFrameworkThread(() => ActorStateChanged?.Invoke(address));
+    }
 
     public bool Available { get; private set; }
 
@@ -147,6 +175,7 @@ internal sealed class GlamourerIpc : IDisposable
     {
         try
         {
+            _selfChange = true;
             return (ApiEc)_setMetaState.InvokeFunc(objectIndex, MetaFlagHatState, visible, 0u, ApplyFlagOnce);
         }
         catch (IpcNotReadyError)
@@ -160,6 +189,10 @@ internal sealed class GlamourerIpc : IDisposable
             Status = $"Could not talk to Glamourer: {ex.Message}";
             Plugin.Log.Warning(ex, "Glamourer.SetMetaState failed.");
             return null;
+        }
+        finally
+        {
+            _selfChange = false;
         }
     }
 
@@ -181,7 +214,6 @@ internal sealed class GlamourerIpc : IDisposable
     {
         _initialized.Unsubscribe(OnInitialized);
         _disposed.Unsubscribe(OnDisposed);
-        foreach (var gate in _stateChanged)
-            gate.Unsubscribe(OnStateChanged);
+        WatchStateChanges(false);
     }
 }

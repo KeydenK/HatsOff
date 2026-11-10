@@ -50,7 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     internal void SaveConfig()
     {
         PluginInterface.SavePluginConfig(Configuration);
-        Controller.Evaluate(); // e.g. turned back on in the middle of a cutscene
+        Controller.OnConfigChanged(); // e.g. turned back on in the middle of a cutscene
     }
 
     private void ToggleConfig()

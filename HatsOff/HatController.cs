@@ -99,21 +99,25 @@ internal sealed unsafe class HatController : IDisposable
         _glamourer.AvailabilityChanged   += OnGlamourerAvailabilityChanged;
         _glamourer.ActorStateChanged     += OnActorStateChanged;
 
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Talk", OnTalkOpened);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostShow,    "Talk", OnTalkOpened);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "Talk", OnTalkUpdated);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "Talk", OnTalkUpdated);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreHide,     "Talk", OnTalkClosed);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Talk", OnTalkClosed);
-        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   ShopAddons, OnShopOpened);
+        UpdateWindowListeners();
 
         // Plugin (re)loaded in the middle of a cutscene. The constructor may run on a loader thread,
         // and everything touching the game or Glamourer must happen on the framework thread.
         Plugin.Framework.RunOnFrameworkThread(Evaluate);
     }
 
-    /// <summary> True while we have hidden the hat and still owe a restore. </summary>
-    public bool IsHidden { get; private set; }
+    private bool _isHidden;
+
+    /// <summary> True while we have hidden the hat and still owe a restore. Glamourer notifications are only listened to meanwhile. </summary>
+    public bool IsHidden
+    {
+        get => _isHidden;
+        private set
+        {
+            _isHidden = value;
+            _glamourer.WatchStateChanges(value);
+        }
+    }
 
     /// <summary> Why the hat is (or should be) hidden right now, for the settings window. </summary>
     public HideReason Reason { get; private set; }
@@ -162,6 +166,44 @@ internal sealed unsafe class HatController : IDisposable
         => Plugin.Condition[ConditionFlag.BetweenAreas]
          || Plugin.Condition[ConditionFlag.BetweenAreas51];
 
+    private bool _windowListeners;
+
+    /// <summary>
+    /// The dialogue box and shop windows only matter for the NPC conversation / quest animation options (both off by
+    /// default): without them, Hats Off doesn't listen to any game window at all.
+    /// </summary>
+    private void UpdateWindowListeners()
+    {
+        var want = _config.NpcDialogue || _config.QuestAnimations;
+        if (want == _windowListeners)
+            return;
+
+        _windowListeners = want;
+        if (want)
+        {
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   "Talk", OnTalkOpened);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostShow,    "Talk", OnTalkOpened);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, "Talk", OnTalkUpdated);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "Talk", OnTalkUpdated);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreHide,     "Talk", OnTalkClosed);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "Talk", OnTalkClosed);
+            Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup,   ShopAddons, OnShopOpened);
+        }
+        else
+        {
+            Plugin.AddonLifecycle.UnregisterListener(OnTalkOpened, OnTalkClosed, OnShopOpened, OnTalkUpdated);
+            _talkOpen    = false;
+            _talkSpeaker = string.Empty;
+        }
+    }
+
+    /// <summary> Settings changed: (un)register what the options need, then re-decide. </summary>
+    public void OnConfigChanged()
+    {
+        UpdateWindowListeners();
+        Evaluate();
+    }
+
     /// <summary> Hide the hat for a few seconds, exactly like a cutscene would, to check that everything works. </summary>
     public void StartTest(int seconds)
     {
@@ -172,12 +214,36 @@ internal sealed unsafe class HatController : IDisposable
 
     // ----- Event handlers -----
 
+    /// <summary>
+    /// Many conditions change all the time (jumping, combat, mounting...). Only these can change our decision,
+    /// so everything else is ignored right away.
+    /// </summary>
+    private static bool IsRelevant(ConditionFlag flag)
+        => flag is ConditionFlag.OccupiedInCutSceneEvent or ConditionFlag.WatchingCutscene or ConditionFlag.WatchingCutscene78
+            or ConditionFlag.BoundByDuty or ConditionFlag.BoundByDuty56 or ConditionFlag.BoundByDuty95
+            or ConditionFlag.OccupiedInEvent or ConditionFlag.OccupiedInQuestEvent or ConditionFlag.OccupiedSummoningBell
+            or ConditionFlag.BetweenAreas or ConditionFlag.BetweenAreas51;
+
     private void OnConditionChange(ConditionFlag flag, bool value)
-        => Evaluate();
+    {
+        if (!IsRelevant(flag))
+            return;
+
+        // A loading screen just ended while we hide the hat: make sure nothing undid it meanwhile
+        // (e.g. Glamourer resetting manual changes on zone change inside a cutscene).
+        if (!value && IsHidden && flag is ConditionFlag.BetweenAreas or ConditionFlag.BetweenAreas51)
+            ScheduleRecheck();
+
+        Evaluate();
+    }
 
     /// <summary> A new dialogue line: remember who speaks, since it decides whether an object interaction is a conversation. </summary>
     private void OnTalkUpdated(AddonEvent type, AddonArgs args)
     {
+        // The speaker only matters to tell an object's text from someone speaking.
+        if (!_objectThisEvent || _inDialogue)
+            return;
+
         var speaker = ReadSpeaker(args);
         if (speaker == _talkSpeaker)
             return;
@@ -216,7 +282,7 @@ internal sealed unsafe class HatController : IDisposable
     private void OnTalkOpened(AddonEvent type, AddonArgs args)
     {
         _talkOpen    = true;
-        _talkSpeaker = ReadSpeaker(args);
+        _talkSpeaker = _objectThisEvent ? ReadSpeaker(args) : string.Empty;
         if (_config.Enabled && _config.NpcDialogue && !_inDialogue)
             Evaluate();
     }
@@ -266,7 +332,8 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> Glamourer changed someone's state. If it's us while we hide the hat, check the hat is still hidden. </summary>
     private void OnActorStateChanged(nint address)
     {
-        if (!IsHidden || Plugin.ObjectTable.LocalPlayer is not { } player || player.Address != address)
+        // GlamourerIpc already filtered on our own character.
+        if (!IsHidden)
             return;
 
         Plugin.Log.Debug("Glamourer reported a change on your character, checking the hat.");
@@ -280,12 +347,15 @@ internal sealed unsafe class HatController : IDisposable
             return;
 
         _recheckPending = true;
-        Plugin.Framework.RunOnTick(() =>
+        Plugin.Framework.RunOnTick(_recheckTick ??= () =>
         {
             _recheckPending = false;
             RecheckHat();
         }, delayTicks: 1);
     }
+
+    private Action? _recheckTick;
+    private Action? _questCheckTick;
 
     // ----- Decision -----
 
@@ -299,17 +369,8 @@ internal sealed unsafe class HatController : IDisposable
         {
             _hiddenFor = Reason;
             _restoreGeneration++; // cancel any pending restore
-            if (!IsHidden)
-            {
-                if (!_refused)
-                    TryHide();
-            }
-            else if (!BetweenAreas)
-            {
-                // Already hidden: still make sure nothing undid it while we weren't looking
-                // (e.g. Glamourer resetting manual changes during a zone change inside a cutscene).
-                ScheduleRecheck();
-            }
+            if (!IsHidden && !_refused)
+                TryHide();
         }
         else
         {
@@ -457,10 +518,11 @@ internal sealed unsafe class HatController : IDisposable
 
     private static unsafe bool ReadAnimation(AnimState into)
     {
-        if (Plugin.ObjectTable.LocalPlayer is not { } player)
+        // Direct pointer to our character: this runs 10 times a second during interactions, so no wrapper objects.
+        var character = (Character*)FFXIVClientStructs.FFXIV.Client.Game.Control.Control.GetLocalPlayer();
+        if (character == null)
             return false;
 
-        var character = (Character*)player.Address;
         var ids       = character->Timeline.TimelineSequencer.TimelineIds;
         for (var i = 0; i < AnimationLayers && i < ids.Length; i++)
             into.Layers[i] = ids[i];
@@ -496,7 +558,7 @@ internal sealed unsafe class HatController : IDisposable
             return;
 
         _questCheckPending = true;
-        Plugin.Framework.RunOnTick(() =>
+        Plugin.Framework.RunOnTick(_questCheckTick ??= () =>
         {
             _questCheckPending = false;
             QuestCheck();
@@ -702,7 +764,17 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> Something (you, another plugin, a gearset change...) may have shown the hat while we hide it. </summary>
     private void RecheckHat()
     {
-        if (_disposed || !IsHidden || Plugin.ObjectTable.LocalPlayer is not { } player || !IsHatShown(player))
+        if (_disposed || !IsHidden)
+            return;
+
+        if (Plugin.ObjectTable.LocalPlayer is not { } player)
+        {
+            // Right after a loading screen the character may not be there yet: look again shortly.
+            Plugin.Framework.RunOnTick(ScheduleRecheck, TimeSpan.FromMilliseconds(500));
+            return;
+        }
+
+        if (!IsHatShown(player))
             return;
 
         // That's the newest intent: the hat should be visible once we're done.
@@ -761,7 +833,9 @@ internal sealed unsafe class HatController : IDisposable
         Plugin.Condition.ConditionChange -= OnConditionChange;
         _glamourer.AvailabilityChanged   -= OnGlamourerAvailabilityChanged;
         _glamourer.ActorStateChanged     -= OnActorStateChanged;
-        Plugin.AddonLifecycle.UnregisterListener(OnTalkOpened, OnTalkClosed, OnShopOpened, OnTalkUpdated);
+        if (_windowListeners)
+            Plugin.AddonLifecycle.UnregisterListener(OnTalkOpened, OnTalkClosed, OnShopOpened, OnTalkUpdated);
+        _glamourer.WatchStateChanges(false);
 
         // Plugin unloaded / disabled mid-cutscene: give the hat back.
         if (!IsHidden || !_restoreVisible || !_glamourer.Available)
