@@ -11,6 +11,22 @@ public sealed class Plugin : IDalamudPlugin
     private const string Command = "/hatsoff";
 
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+
+    /// <summary>Troubleshooting details: in the normal log when "Detailed log" is on (always in a dev build), debug level otherwise.</summary>
+    internal static bool DetailedLog => PluginInterface.IsDev || _detailedLog?.Invoke() == true;
+    private static Func<bool>? _detailedLog;
+
+    internal static void Debug(string message)
+    {
+        if (DetailedLog) Log.Information(message);
+        else Log.Debug(message);
+    }
+
+    internal static void Debug(Exception ex, string message)
+    {
+        if (DetailedLog) Log.Information(ex, message);
+        else Log.Debug(ex, message);
+    }
     [PluginService] internal static ICommandManager         Commands        { get; private set; } = null!;
     [PluginService] internal static IFramework              Framework       { get; private set; } = null!;
     [PluginService] internal static ICondition              Condition       { get; private set; } = null!;
@@ -32,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        _detailedLog  = () => Configuration.DetailedLog;
         Glamourer     = new GlamourerIpc(PluginInterface);
         Controller    = new HatController(Configuration, Glamourer);
 

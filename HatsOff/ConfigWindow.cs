@@ -205,6 +205,16 @@ internal sealed class ConfigWindow : Window
             _plugin.SaveConfig();
         }
 
+        var detailed = Config.DetailedLog;
+        if (ImGui.Checkbox("Write troubleshooting details to the Dalamud log", ref detailed))
+        {
+            Config.DetailedLog = detailed;
+            _plugin.SaveConfig();
+        }
+
+        ImGui.SameLine();
+        ImGuiComponents.HelpMarker("For troubleshooting: include the [HatsOff] lines from /xllog when you report a problem. Off by default.");
+
         ImGuiHelpers.ScaledDummy(2);
         using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey))
         {

@@ -345,7 +345,7 @@ internal sealed unsafe class HatController : IDisposable
         if (!IsHidden)
             return;
 
-        Plugin.Log.Debug("Glamourer reported a change on your character, checking the hat.");
+        Plugin.Debug("Glamourer reported a change on your character, checking the hat.");
         ScheduleRecheck();
     }
 
@@ -408,6 +408,7 @@ internal sealed unsafe class HatController : IDisposable
     /// (the safety net) switches itself off for the rest of the session.
     /// </summary>
     private bool _talkEventsWork;
+    private bool _safetyNetAnnounced; // said once per session that the safety net caught a dialogue box
 
     private void TalkEventsWork()
     {
@@ -415,7 +416,7 @@ internal sealed unsafe class HatController : IDisposable
             return;
 
         _talkEventsWork = true;
-        Plugin.Log.Debug("Dialogue box events work: visibility safety net off.");
+        Plugin.Debug("Dialogue box events work: visibility safety net off.");
     }
 
     private bool    _talkCheckPending;
@@ -458,6 +459,12 @@ internal sealed unsafe class HatController : IDisposable
             var speaker = ReadSpeaker(addon.Address);
             changed     |= speaker != _talkSpeaker;
             _talkSpeaker = speaker;
+        }
+
+        if (visible && !_talkOpen && !_safetyNetAnnounced)
+        {
+            _safetyNetAnnounced = true;
+            Plugin.Log.Information("Dialogue box opened without sending an event: the safety net is handling it (Dalamud's events aren't arriving).");
         }
 
         _talkOpen = visible;
@@ -707,7 +714,7 @@ internal sealed unsafe class HatController : IDisposable
             if (i == 0 || key.StartsWith("emote/", StringComparison.Ordinal) || key.StartsWith("event", StringComparison.Ordinal))
                 return $"{Animations.Describe(before)} -> {Animations.Describe(now)}";
 
-            Plugin.Log.Debug($"Animation layer {i} changed to {Animations.Describe(now)}, not treated as a reaction.");
+            Plugin.Debug($"Animation layer {i} changed to {Animations.Describe(now)}, not treated as a reaction.");
         }
 
         // Nothing meaningful: take the current state as the new reference.

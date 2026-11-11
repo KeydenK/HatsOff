@@ -18,7 +18,7 @@ internal static class Animations
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Could not read animation data.");
+            Plugin.Debug(ex, "Could not read animation data.");
             key = string.Empty;
         }
 

@@ -51,7 +51,7 @@ internal static class ServiceNpcs
         }
         catch (Exception ex)
         {
-            Plugin.Log.Debug(ex, "Could not read NPC data, treating it as a normal NPC.");
+            Plugin.Debug(ex, "Could not read NPC data, treating it as a normal NPC.");
         }
 
         Cache[baseId] = result;

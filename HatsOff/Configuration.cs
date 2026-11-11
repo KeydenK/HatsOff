@@ -30,4 +30,7 @@ public sealed class Configuration : IPluginConfiguration
 
     /// <summary> Print a chat line every time the hat is hidden/restored. </summary>
     public bool ChatFeedback { get; set; } = false;
+
+    /// <summary> Write troubleshooting details to the Dalamud log (always on in a dev build). </summary>
+    public bool DetailedLog { get; set; } = false;
 }

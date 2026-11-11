@@ -7,5 +7,5 @@
   "IconUrl": "https://raw.githubusercontent.com/KeydenK/HatsOff/main/HatsOff/images/icon.png",
   "Tags": ["Headgear", "Hat", "Helmet", "Hide", "Hide Hat", "Cutscene", "Dialogue", "NPC", "Immersion", "Glamourer", "Appearance", "QoL"],
   "CategoryTags": ["utility"],
-  "Changelog": "Fix: NPC conversations hide your hat again. Since the latest game update, the dialogue box can appear without telling plugins, so Hats Off now also checks whether it's on screen during NPC interactions. Also fixed: conversations could be missed when your target was still on a quest object, and Hats Off now looks at what you're actually interacting with first (helps controller players)."
+  "Changelog": "New: \"Write troubleshooting details to the Dalamud log\" option in Advanced (off by default), which also tells whether the dialogue box safety net is needed."
 }
