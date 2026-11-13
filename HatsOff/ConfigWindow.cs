@@ -177,10 +177,9 @@ internal sealed class ConfigWindow : Window
         var delay = Config.RestoreDelayMs / 1000f;
         ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat("Keep hidden after a cutscene", ref delay, 0f, 3f, "%.1f s"))
-        {
             Config.RestoreDelayMs = (int)MathF.Round(delay * 1000);
-            _plugin.SaveConfig();
-        }
+        if (ImGui.IsItemDeactivatedAfterEdit())
+            _plugin.SaveConfig(); // once on release, not every frame while dragging
 
         ImGui.SameLine();
         ImGuiComponents.HelpMarker("Waits a little before giving your hat back, so it doesn't pop in during the fade-out "
@@ -189,10 +188,9 @@ internal sealed class ConfigWindow : Window
         var talkDelay = Config.ConversationRestoreDelayMs / 1000f;
         ImGui.SetNextItemWidth(160 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat("Keep hidden after a conversation", ref talkDelay, 0f, 5f, "%.1f s"))
-        {
             Config.ConversationRestoreDelayMs = (int)MathF.Round(talkDelay * 1000);
+        if (ImGui.IsItemDeactivatedAfterEdit())
             _plugin.SaveConfig();
-        }
 
         ImGui.SameLine();
         ImGuiComponents.HelpMarker("Same idea for NPC conversations, quest objects and quest animations. "

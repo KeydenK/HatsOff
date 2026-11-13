@@ -96,6 +96,7 @@ internal sealed unsafe class HatController : IDisposable
         _glamourer = glamourer;
 
         Plugin.Condition.ConditionChange += OnConditionChange;
+        Plugin.ClientState.Logout        += OnLogout;
         _glamourer.AvailabilityChanged   += OnGlamourerAvailabilityChanged;
         _glamourer.ActorStateChanged     += OnActorStateChanged;
 
@@ -142,7 +143,6 @@ internal sealed unsafe class HatController : IDisposable
     private static bool InQuestEvent
         => Plugin.Condition[ConditionFlag.OccupiedInQuestEvent];
 
-    /// <summary> The NPC we're talking to: interacting with an NPC targets it. 0 if unknown. </summary>
     /// <summary> Interacting with an object (glowing quest destination, item to examine...) rather than an NPC. </summary>
     private static bool TalkingToObject()
         => InteractionTarget() is { ObjectKind: Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj };
@@ -338,6 +338,34 @@ internal sealed unsafe class HatController : IDisposable
         Evaluate();
     }
 
+    /// <summary>
+    /// Logging out (or switching characters) while the hat is hidden: give it back right away, by name since the
+    /// character is going away, and forget everything about the current scene so nothing carries over to the next login.
+    /// </summary>
+    private void OnLogout(int type, int code)
+    {
+        if (IsHidden && _restoreVisible && _glamourer.Available && _playerName is not null)
+        {
+            var result = _glamourer.SetHatVisibleByName(_playerName, true);
+            Plugin.Debug(Succeeded(result) ? "Logged out: hat given back." : $"Logged out: could not give the hat back ({Describe(result)}).");
+        }
+
+        IsHidden               = false;
+        _restoreVisible        = false;
+        _oweRestoreAfterReload = false;
+        _restoreGeneration++;
+        _refused         = false;
+        _inDialogue      = false;
+        _talkOpen        = false;
+        _talkSpeaker     = string.Empty;
+        _shopThisEvent   = false;
+        _objectThisEvent = false;
+        _questReaction   = false;
+        _testUntil       = null;
+        _playerName      = null;
+        _reHides.Clear();
+    }
+
     /// <summary> Glamourer changed someone's state. If it's us while we hide the hat, check the hat is still hidden. </summary>
     private void OnActorStateChanged(nint address)
     {
@@ -442,7 +470,8 @@ internal sealed unsafe class HatController : IDisposable
 
         if (!TalkWatchUseful())
         {
-            if (_talkOpen)
+            // Only clear what the safety net itself was tracking: once real events arrive, they own _talkOpen.
+            if (_talkOpen && !_talkEventsWork)
             {
                 _talkOpen = false;
                 Evaluate();
@@ -521,7 +550,7 @@ internal sealed unsafe class HatController : IDisposable
             // An object (glowing quest spot, aether current, switch...): it only counts if the character reacts,
             // with or without a text box.
             _objectThisEvent = true;
-            Plugin.Log.Information("Interacting with an object: the hat only hides if your character reacts.");
+            Plugin.Debug("Interacting with an object: the hat only hides if your character reacts.");
         }
 
         if (_config.NpcDialogue && !_shopThisEvent && !AtSummoningBell)
@@ -541,17 +570,17 @@ internal sealed unsafe class HatController : IDisposable
                 {
                     // The object started a conversation: dialogue wins.
                     _inDialogue = true;
-                    Plugin.Log.Information($"Someone speaks ({_talkSpeaker}) after interacting with an object, hiding the hat.");
+                    Plugin.Debug("Someone speaks after interacting with an object, hiding the hat.");
                 }
                 else if (!InQuestEvent && ServiceNpcs.IsServiceNpc(npcId))
                 {
                     _shopThisEvent = true;
-                    Plugin.Log.Information($"Conversation with a vendor/service NPC ({npcId}), leaving the hat alone.");
+                    Plugin.Debug($"Conversation with a vendor/service NPC ({npcId}), leaving the hat alone.");
                 }
                 else
                 {
                     _inDialogue = true;
-                    Plugin.Log.Information(InQuestEvent
+                    Plugin.Debug(InQuestEvent
                         ? $"Quest conversation ({npcId}), hiding the hat."
                         : $"Conversation with a regular NPC ({npcId}), hiding the hat.");
                 }
@@ -674,7 +703,7 @@ internal sealed unsafe class HatController : IDisposable
 
         if (ReadAnimation(_animNow) && FindReaction() is { } reaction)
         {
-            Plugin.Log.Information($"Your character reacts ({reaction}), hiding the hat.");
+            Plugin.Debug($"Your character reacts ({reaction}), hiding the hat.");
             _questReaction = true;
             Evaluate();
             return;
@@ -749,7 +778,7 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> Something went wrong (no player object yet, Glamourer busy...): try again once, a bit later. </summary>
     private void ScheduleRetry()
     {
-        if (_retryPending)
+        if (_retryPending || !Plugin.ClientState.IsLoggedIn)
             return;
 
         _retryPending = true;
@@ -864,7 +893,8 @@ internal sealed unsafe class HatController : IDisposable
         if (Plugin.ObjectTable.LocalPlayer is not { } player)
         {
             // Right after a loading screen the character may not be there yet: look again shortly.
-            Plugin.Framework.RunOnTick(ScheduleRecheck, TimeSpan.FromMilliseconds(500));
+            if (Plugin.ClientState.IsLoggedIn)
+                Plugin.Framework.RunOnTick(ScheduleRecheck, TimeSpan.FromMilliseconds(500));
             return;
         }
 
@@ -904,7 +934,7 @@ internal sealed unsafe class HatController : IDisposable
     private void Report(string message)
     {
         LastAction = message;
-        Plugin.Log.Information(message);
+        Plugin.Debug(message);
         if (!_config.ChatFeedback)
             return;
 
@@ -925,6 +955,7 @@ internal sealed unsafe class HatController : IDisposable
     {
         _disposed = true;
         Plugin.Condition.ConditionChange -= OnConditionChange;
+        Plugin.ClientState.Logout        -= OnLogout;
         _glamourer.AvailabilityChanged   -= OnGlamourerAvailabilityChanged;
         _glamourer.ActorStateChanged     -= OnActorStateChanged;
         if (_windowListeners)
