@@ -15,7 +15,7 @@
     { "assert": "probe:HatsOff:hidden_by_us=no; reason=none", "msg": "Hats Off should still not be hiding anything" },
     { "assert": "!event:^hat (HIDDEN|SHOWN)$", "msg": "the hat must not change at all" },
     { "assert": "!event:\\[HatsOff\\] Hat (hidden|restored)", "msg": "Hats Off should not have hidden or restored anything" },
-    { "assert": "!anomaly:FLICKER: hat", "msg": "no hat flicker" },
+    { "assert": "!anomaly:FLICKER: (drawn )?hat", "msg": "no hat flicker" },
     { "assert": "!event:\\[(WRN|ERR)\\] \\[HatsOff\\]", "msg": "no warnings or errors from Hats Off" }
   ]
 }
