@@ -7,5 +7,5 @@
   "IconUrl": "https://raw.githubusercontent.com/KeydenK/HatsOff/main/HatsOff/images/icon.png",
   "Tags": ["Headgear", "Hat", "Helmet", "Hide", "Hide Hat", "Cutscene", "Dialogue", "NPC", "Immersion", "Glamourer", "Appearance", "QoL"],
   "CategoryTags": ["utility"],
-  "Changelog": "New: \"Write troubleshooting details to the Dalamud log\" option in Advanced (off by default), which also tells whether the dialogue box safety net is needed."
+  "Changelog": "If you log out while Hats Off is hiding your hat, it now gives the hat back. The delay sliders save reliably, and the log stays quieter unless you turn on troubleshooting details."
 }
