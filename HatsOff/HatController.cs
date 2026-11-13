@@ -130,6 +130,7 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> Last thing that happened, for the settings window. </summary>
     public string LastAction { get; private set; } = "Nothing yet.";
 
+#if DEVTOOLS
     /// <summary>
     /// One-line state for Claude's test scenarios (TestProbe, dev builds only). Read-only: never recomputes
     /// the decision, it only reports what the last event decided. No player names.
@@ -174,6 +175,7 @@ internal sealed unsafe class HatController : IDisposable
              + $"npc={OnOff(_config.NpcDialogue)}; quest_anim={OnOff(_config.QuestAnimations)}; "
              + $"delay_ms={_config.RestoreDelayMs}; talk_delay_ms={_config.ConversationRestoreDelayMs}; last={LastAction}";
     }
+#endif
 
     public static bool InCutscene
         => Plugin.Condition[ConditionFlag.OccupiedInCutSceneEvent]

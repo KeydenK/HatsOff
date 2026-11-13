@@ -60,8 +60,10 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfig;
         PluginInterface.UiBuilder.OpenMainUi   += ToggleConfig;
 
+#if DEVTOOLS
         // Dev builds only: lets Claude's test scenarios ask what Hats Off is doing (see tests/README.md).
         TestProbe.Register(PluginInterface, "HatsOff", Controller.TestState);
+#endif
 
         Commands.AddHandler(Command, new CommandInfo(OnCommand)
         {
@@ -104,7 +106,9 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+#if DEVTOOLS
         TestProbe.Unregister();
+#endif
         Commands.RemoveHandler(Command);
         PluginInterface.UiBuilder.Draw         -= _windows.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfig;
