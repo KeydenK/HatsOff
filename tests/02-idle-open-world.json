@@ -1,0 +1,21 @@
+{
+  "name": "Hats Off: idle and moving in the open world never touches the hat",
+  "steps": [
+    { "assert": "probe:HatsOff:glamourer=available && probe:HatsOff:enabled=on", "msg": "precondition: Glamourer connected, Hats Off on" },
+    { "assert": "!cond:BoundByDuty && !cond:OccupiedInCutSceneEvent && !cond:OccupiedInEvent", "msg": "precondition: open world, no cutscene, no NPC interaction" },
+    { "mark": "idle" },
+    { "wait": 3000 },
+    { "mark": "walk and jump (condition changes Hats Off must ignore)" },
+    { "do": "stick L 0 1 1200" },
+    { "wait": 1500 },
+    { "do": "pad Triangle" },
+    { "wait": 1500 },
+    { "do": "stick L 0 -1 1200" },
+    { "wait": 2500 },
+    { "assert": "probe:HatsOff:hidden_by_us=no; reason=none", "msg": "Hats Off should still not be hiding anything" },
+    { "assert": "!event:^hat (HIDDEN|SHOWN)$", "msg": "the hat must not change at all" },
+    { "assert": "!event:\\[HatsOff\\] Hat (hidden|restored)", "msg": "Hats Off should not have hidden or restored anything" },
+    { "assert": "!anomaly:FLICKER: hat", "msg": "no hat flicker" },
+    { "assert": "!event:\\[(WRN|ERR)\\] \\[HatsOff\\]", "msg": "no warnings or errors from Hats Off" }
+  ]
+}

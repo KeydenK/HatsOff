@@ -1,0 +1,18 @@
+{
+  "name": "Hats Off (manual): a cutscene hides the hat from start to end, no flicker",
+  "steps": [
+    { "assert": "probe:HatsOff:glamourer=available && probe:HatsOff:enabled=on && probe:HatsOff:hidden_by_us=no", "msg": "precondition: Glamourer connected, Hats Off on and idle" },
+    { "assert": "probe:HatsOff:story=on", "msg": "precondition: story cutscenes option on" },
+    { "mark": "START THE CUTSCENE NOW (Inn: Unending Journey, or a quest step)" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=yes; reason=cutscene", "timeout": 120000, "msg": "a cutscene should start within 2 minutes and Hats Off should hide the hat" },
+    { "wait": 500 },
+    { "assert": "event:^hat HIDDEN$", "msg": "the hat should actually disappear (precondition: wearing headgear that is shown)" },
+    { "mark": "cutscene playing: watch the hat stay off (also on the cutscene copy of your character)" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=no; reason=none", "timeout": 420000, "msg": "after the cutscene (max 7 minutes) Hats Off should restore the hat (delay 0.5 s by default)" },
+    { "wait": 1000 },
+    { "assert": "!cond:OccupiedInCutSceneEvent && !cond:WatchingCutscene && !cond:WatchingCutscene78", "msg": "the cutscene should really be over" },
+    { "assert": "event:^hat SHOWN$", "msg": "the hat should be back" },
+    { "assert": "!anomaly:FLICKER: hat", "msg": "no hat flicker (start, scene changes, end)" },
+    { "assert": "!event:\\[(WRN|ERR)\\] \\[HatsOff\\]", "msg": "no warnings or errors from Hats Off" }
+  ]
+}

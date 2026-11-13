@@ -130,6 +130,51 @@ internal sealed unsafe class HatController : IDisposable
     /// <summary> Last thing that happened, for the settings window. </summary>
     public string LastAction { get; private set; } = "Nothing yet.";
 
+    /// <summary>
+    /// One-line state for Claude's test scenarios (TestProbe, dev builds only). Read-only: never recomputes
+    /// the decision, it only reports what the last event decided. No player names.
+    /// </summary>
+    internal string TestState()
+    {
+        static string YesNo(bool b) => b ? "yes" : "no";
+        static string OnOff(bool b) => b ? "on" : "off";
+
+        var reason = Reason switch
+        {
+            HideReason.Test           => "test",
+            HideReason.Cutscene       => "cutscene",
+            HideReason.Dialogue       => "conversation",
+            HideReason.QuestAnimation => "quest_animation",
+            _                         => "none",
+        };
+
+        string waitingFor;
+        if (!_glamourer.Available)
+            waitingFor = "glamourer";
+        else if (IsHidden && Reason is not HideReason.None)
+            waitingFor = "end_of_" + reason;
+        else if (IsHidden)
+            waitingFor = "restore_delay";
+        else if (!_config.Enabled)
+            waitingFor = "nothing";
+        else
+        {
+            var what = new List<string>(3);
+            if (_config.StoryCutscenes || _config.DutyCutscenes) what.Add("cutscene");
+            if (_config.NpcDialogue) what.Add("conversation");
+            if (_config.QuestAnimations) what.Add("quest_animation");
+            waitingFor = what.Count > 0 ? string.Join('+', what) : "nothing";
+        }
+
+        return $"glamourer={(_glamourer.Available ? "available" : "missing")}; enabled={OnOff(_config.Enabled)}; "
+             + $"hidden_by_us={YesNo(IsHidden)}; reason={reason}; waiting_for={waitingFor}; "
+             + $"restore_to={(IsHidden ? (_restoreVisible ? "shown" : "hidden") : "-")}; refused={YesNo(_refused)}; "
+             + $"testing={YesNo(IsTesting)}; in_dialogue={YesNo(_inDialogue)}; talk_open={YesNo(_talkOpen)}; "
+             + $"quest_watch={YesNo(_questWatching)}; story={OnOff(_config.StoryCutscenes)}; duty={OnOff(_config.DutyCutscenes)}; "
+             + $"npc={OnOff(_config.NpcDialogue)}; quest_anim={OnOff(_config.QuestAnimations)}; "
+             + $"delay_ms={_config.RestoreDelayMs}; talk_delay_ms={_config.ConversationRestoreDelayMs}; last={LastAction}";
+    }
+
     public static bool InCutscene
         => Plugin.Condition[ConditionFlag.OccupiedInCutSceneEvent]
          || Plugin.Condition[ConditionFlag.WatchingCutscene]

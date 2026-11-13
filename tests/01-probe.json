@@ -1,0 +1,11 @@
+{
+  "name": "Hats Off: probe answers, Glamourer connected, idle",
+  "steps": [
+    { "waitFor": "probe:HatsOff:glamourer=", "timeout": 2000, "msg": "the probe should answer (dev build of Hats Off loaded?)" },
+    { "assert": "probe:HatsOff:glamourer=available", "msg": "Glamourer should be connected" },
+    { "assert": "probe:HatsOff:enabled=on", "msg": "Hats Off should be on (/hatsoff on)" },
+    { "assert": "probe:HatsOff:refused=no", "msg": "Glamourer should not be refusing hat changes" },
+    { "assert": "!cond:OccupiedInCutSceneEvent && !cond:WatchingCutscene && !cond:OccupiedInEvent", "msg": "precondition: not in a cutscene or NPC interaction" },
+    { "assert": "probe:HatsOff:hidden_by_us=no; reason=none", "msg": "nothing going on, so the hat should not be hidden by Hats Off" }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Hats Off: /hatsoff test hides the hat for 15 s, then gives it back cleanly",
+  "steps": [
+    { "assert": "probe:HatsOff:glamourer=available && probe:HatsOff:hidden_by_us=no", "msg": "precondition: Glamourer connected, Hats Off not hiding anything" },
+    { "assert": "!cond:OccupiedInCutSceneEvent && !cond:OccupiedInEvent", "msg": "precondition: no cutscene, no NPC interaction" },
+    { "mark": "test run starts" },
+    { "cmd": "/hatsoff test" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=yes; reason=test", "timeout": 2000, "msg": "Hats Off should report the hat hidden for the test" },
+    { "wait": 500 },
+    { "assert": "event:^hat HIDDEN$", "msg": "the hat should actually disappear (precondition: wearing headgear that is shown)" },
+    { "assert": "event:\\[HatsOff\\] Hat hidden", "msg": "Hats Off should log that it hid the hat" },
+    { "mark": "waiting for the test run to end (15 s + restore delay)" },
+    { "waitFor": "event:^hat SHOWN$", "timeout": 20000, "msg": "the hat should come back after about 15 s" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=no; reason=none", "timeout": 2000, "msg": "Hats Off should be idle again" },
+    { "assert": "event:\\[HatsOff\\] Hat restored", "msg": "Hats Off should log that it restored the hat" },
+    { "assert": "!anomaly:FLICKER: hat", "msg": "no hat flicker while hiding or restoring" },
+    { "assert": "!event:\\[(WRN|ERR)\\] \\[HatsOff\\]", "msg": "no warnings or errors from Hats Off" }
+  ]
+}

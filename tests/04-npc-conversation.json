@@ -1,0 +1,26 @@
+{
+  "name": "Hats Off: NPC conversation hides the hat and gives it back after",
+  "steps": [
+    { "assert": "probe:HatsOff:glamourer=available && probe:HatsOff:enabled=on && probe:HatsOff:hidden_by_us=no", "msg": "precondition: Glamourer connected, Hats Off on and idle" },
+    { "assert": "probe:HatsOff:npc=on", "msg": "precondition: turn on the NPC conversation option in /hatsoff" },
+    { "assert": "!cond:OccupiedInCutSceneEvent && !cond:OccupiedInEvent && !cond:Mounted", "msg": "precondition: on foot, no cutscene, no NPC interaction" },
+    { "mark": "target the nearest NPC and talk" },
+    { "cmd": "/targetnpc" },
+    { "wait": 400 },
+    { "do": "pad Cross" },
+    { "waitFor": "window:Talk", "timeout": 3000, "msg": "a dialogue box should open (precondition: right next to a regular NPC with chat, no vendor)" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=yes; reason=conversation", "timeout": 2000, "msg": "Hats Off should hide the hat for the conversation" },
+    { "wait": 500 },
+    { "assert": "event:^hat HIDDEN$", "msg": "the hat should actually disappear (precondition: wearing headgear that is shown)" },
+    { "wait": 1500 },
+    { "assert": "!event:^hat SHOWN$", "msg": "the hat must stay hidden while the dialogue box is up" },
+    { "mark": "close the dialogue" },
+    { "do": "pad Cross" },
+    { "waitFor": "!window:Talk && !cond:OccupiedInEvent", "timeout": 4000, "msg": "the conversation should end (precondition: an NPC with a one-box chat; else add pad Cross steps)" },
+    { "assert": "probe:HatsOff:hidden_by_us=yes", "msg": "the hat stays hidden during the 'keep hidden after a conversation' delay" },
+    { "waitFor": "event:^hat SHOWN$", "timeout": 7000, "msg": "the hat should come back after the delay (default 2 s)" },
+    { "waitFor": "probe:HatsOff:hidden_by_us=no; reason=none", "timeout": 2000, "msg": "Hats Off should be idle again" },
+    { "assert": "!anomaly:FLICKER: hat", "msg": "no hat flicker at any point" },
+    { "assert": "!event:\\[(WRN|ERR)\\] \\[HatsOff\\]", "msg": "no warnings or errors from Hats Off" }
+  ]
+}
